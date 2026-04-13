@@ -1,286 +1,323 @@
 import { useState, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { TOOLS } from './Home.jsx'
+import { useParams, useNavigate } from 'react-router-dom'
 import FileDropzone from '../components/FileDropzone.jsx'
 import ProgressBar from '../components/ProgressBar.jsx'
 import DownloadButton from '../components/DownloadButton.jsx'
 import * as api from '../api/api.js'
 
-// Accept maps for dropzone
-const PDF_ACCEPT = { 'application/pdf': ['.pdf'] }
-const WORD_ACCEPT = { 'application/msword': ['.doc'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] }
-const IMAGE_ACCEPT = { 'image/*': ['.jpg','.jpeg','.png','.gif','.bmp','.tiff','.webp'] }
-const PPTX_ACCEPT = { 'application/vnd.ms-powerpoint': ['.ppt'], 'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'] }
-
-function getAccept(toolId) {
-    if (['pdf-to-word','pdf-to-images','pdf-to-pptx','split-pdf','compress-pdf','rotate-pdf','edit-pdf'].includes(toolId)) return PDF_ACCEPT
-    if (toolId === 'word-to-pdf') return WORD_ACCEPT
-    if (toolId === 'images-to-pdf') return IMAGE_ACCEPT
-    if (toolId === 'pptx-to-pdf') return PPTX_ACCEPT
-    if (['merge-pdf','delete-pages','watermark-pdf'].includes(toolId)) return PDF_ACCEPT
-    return undefined
+const TOOL_CONFIG = {
+  'pdf-to-word': {
+    name: 'PDF to Word',
+    description: 'Convert PDF to editable Word document',
+    icon: '📄',
+    accept: { 'application/pdf': ['.pdf'] },
+    multiple: false,
+  },
+  'word-to-pdf': {
+    name: 'Word to PDF',
+    description: 'Convert Word document to PDF',
+    icon: '📝',
+    accept: {
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc'],
+    },
+    multiple: false,
+  },
+  'images-to-pdf': {
+    name: 'Images to PDF',
+    description: 'Combine images into a PDF',
+    icon: '🖼️',
+    accept: { 'image/*': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'] },
+    multiple: true,
+  },
+  'pdf-to-images': {
+    name: 'PDF to Images',
+    description: 'Extract PDF pages as images',
+    icon: '🖼️',
+    accept: { 'application/pdf': ['.pdf'] },
+    multiple: false,
+  },
+  'pptx-to-pdf': {
+    name: 'PowerPoint to PDF',
+    description: 'Convert PowerPoint to PDF',
+    icon: '📊',
+    accept: {
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+      'application/vnd.ms-powerpoint': ['.ppt'],
+    },
+    multiple: false,
+  },
+  'pdf-to-pptx': {
+    name: 'PDF to PowerPoint',
+    description: 'Convert PDF to PowerPoint',
+    icon: '📊',
+    accept: { 'application/pdf': ['.pdf'] },
+    multiple: false,
+  },
+  'merge-pdf': {
+    name: 'Merge PDF',
+    description: 'Combine multiple PDFs into one',
+    icon: '🔗',
+    accept: { 'application/pdf': ['.pdf'] },
+    multiple: true,
+  },
+  'split-pdf': {
+    name: 'Split PDF',
+    description: 'Split PDF into multiple files',
+    icon: '✂️',
+    accept: { 'application/pdf': ['.pdf'] },
+    multiple: false,
+    hasOptions: true,
+    options: [
+      { key: 'ranges', label: 'Page ranges (e.g. 1-3,4-6)', type: 'text', placeholder: '1-3,4-6' },
+    ],
+  },
+  'delete-pages': {
+    name: 'Delete Pages',
+    description: 'Remove specific pages from PDF',
+    icon: '🗑️',
+    accept: { 'application/pdf': ['.pdf'] },
+    multiple: false,
+    hasOptions: true,
+    options: [
+      { key: 'pages', label: 'Pages to delete (e.g. 1,3,5)', type: 'text', placeholder: '1,3,5' },
+    ],
+  },
+  'edit-pdf': {
+    name: 'Edit PDF',
+    description: 'Add text overlay to PDF pages',
+    icon: '✏️',
+    accept: { 'application/pdf': ['.pdf'] },
+    multiple: false,
+    hasOptions: true,
+    options: [
+      { key: 'text', label: 'Text to add', type: 'text', placeholder: 'Enter text...' },
+      { key: 'page', label: 'Page number', type: 'number', placeholder: '1' },
+      { key: 'x', label: 'X position', type: 'number', placeholder: '100' },
+      { key: 'y', label: 'Y position', type: 'number', placeholder: '100' },
+    ],
+  },
+  'compress-pdf': {
+    name: 'Compress PDF',
+    description: 'Reduce PDF file size',
+    icon: '🗜️',
+    accept: { 'application/pdf': ['.pdf'] },
+    multiple: false,
+  },
+  'watermark-pdf': {
+    name: 'Add Watermark',
+    description: 'Add text watermark to PDF',
+    icon: '💧',
+    accept: { 'application/pdf': ['.pdf'] },
+    multiple: false,
+    hasOptions: true,
+    options: [
+      { key: 'text', label: 'Watermark text', type: 'text', placeholder: 'CONFIDENTIAL' },
+      { key: 'opacity', label: 'Opacity (0.1-1.0)', type: 'number', placeholder: '0.3' },
+    ],
+  },
+  'rotate-pdf': {
+    name: 'Rotate PDF',
+    description: 'Rotate pages in PDF',
+    icon: '🔄',
+    accept: { 'application/pdf': ['.pdf'] },
+    multiple: false,
+    hasOptions: true,
+    options: [
+      { key: 'angle', label: 'Rotation angle', type: 'select', options: ['90', '180', '270'] },
+      { key: 'pages', label: 'Pages (leave empty for all)', type: 'text', placeholder: '1,2,3' },
+    ],
+  },
 }
 
-function getOutputFilename(toolId, inputName) {
-    const stem = inputName ? inputName.replace(/\.[^.]+$/, '') : 'output'
-    const map = {
-          'pdf-to-word':   stem + '_converted.docx',
-          'word-to-pdf':   stem + '_converted.pdf',
-          'images-to-pdf': 'images_combined.pdf',
-          'pdf-to-images': stem + '_images.zip',
-          'pptx-to-pdf':   stem + '.pdf',
-          'pdf-to-pptx':   stem + '.pptx',
-          'merge-pdf':     'merged.pdf',
-          'split-pdf':     'split_pages.zip',
-          'delete-pages':  'pages_deleted.pdf',
-          'compress-pdf':  'compressed.pdf',
-          'watermark-pdf': 'watermarked.pdf',
-          'rotate-pdf':    'rotated.pdf',
-          'edit-pdf':      stem + '_edited.pdf',
-    }
-    return map[toolId] || 'output'
+const API_MAP = {
+  'pdf-to-word': api.pdfToWord,
+  'word-to-pdf': api.wordToPdf,
+  'images-to-pdf': api.imagesToPdf,
+  'pdf-to-images': api.pdfToImages,
+  'pptx-to-pdf': api.pptxToPdf,
+  'pdf-to-pptx': api.pdfToPptx,
+  'merge-pdf': api.mergePdf,
+  'split-pdf': api.splitPdf,
+  'delete-pages': api.deletePages,
+  'edit-pdf': api.editPdf,
+  'compress-pdf': api.compressPdf,
+  'watermark-pdf': api.watermarkPdf,
+  'rotate-pdf': api.rotatePdf,
 }
 
 export default function ToolPage() {
-    const { toolId } = useParams()
-    const tool = TOOLS.find(t => t.id === toolId)
+  const { toolId } = useParams()
+  const navigate = useNavigate()
+  const config = TOOL_CONFIG[toolId]
 
   const [files, setFiles] = useState([])
-    const [progress, setProgress] = useState(0)
-    const [loading, setLoading] = useState(false)
-    const [downloadUrl, setDownloadUrl] = useState(null)
-    const [outputFilename, setOutputFilename] = useState('')
-    const [error, setError] = useState(null)
+  const [options, setOptions] = useState({})
+  const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [resultBlob, setResultBlob] = useState(null)
+  const [resultFilename, setResultFilename] = useState('')
+  const [error, setError] = useState(null)
 
-  // Extra fields for tools that need options
-  const [pagesInput, setPagesInput] = useState('')
-    const [watermarkText, setWatermarkText] = useState('CONFIDENTIAL')
-    const [rotateDeg, setRotateDeg] = useState(90)
-    const [editPage, setEditPage] = useState(1)
-    const [editText, setEditText] = useState('')
-    const [editX, setEditX] = useState(50)
-    const [editY, setEditY] = useState(100)
-    const [editFontSize, setEditFontSize] = useState(14)
+  if (!config) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16 text-center">
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">Tool not found</h1>
+        <button onClick={() => navigate('/')} className="btn-primary">Go Home</button>
+      </div>
+    )
+  }
 
-  const reset = useCallback(() => {
-        setFiles([])
-        setProgress(0)
-        setLoading(false)
-        setDownloadUrl(null)
-        setOutputFilename('')
-        setError(null)
-  }, [])
-
-  const handleFiles = useCallback((accepted) => {
-        setFiles(accepted)
-        setError(null)
-        setDownloadUrl(null)
+  const handleDrop = useCallback((acceptedFiles) => {
+    setFiles(acceptedFiles)
+    setResultBlob(null)
+    setError(null)
   }, [])
 
   const handleSubmit = async () => {
-        if (files.length === 0) { setError('Please select a file first.'); return }
-        setLoading(true)
-        setError(null)
-        setProgress(0)
+    if (files.length === 0) {
+      setError('Please select a file first.')
+      return
+    }
 
-        try {
-                let response
-                const onProgress = (p) => setProgress(p)
-                const f = files[0]
+    const apiFn = API_MAP[toolId]
+    if (!apiFn) {
+      setError('Tool not implemented yet.')
+      return
+    }
 
-          switch (toolId) {
-            case 'pdf-to-word':   response = await api.pdfToWord(f, onProgress); break
-            case 'word-to-pdf':   response = await api.wordToPdf(f, onProgress); break
-            case 'images-to-pdf': response = await api.imagesToPdf(files, onProgress); break
-            case 'pdf-to-images': response = await api.pdfToImages(f, onProgress); break
-            case 'pptx-to-pdf':   response = await api.pptxToPdf(f, onProgress); break
-            case 'pdf-to-pptx':   response = await api.pdfToPptx(f, onProgress); break
-            case 'merge-pdf':     response = await api.mergePdf(files, onProgress); break
-            case 'split-pdf':     response = await api.splitPdf(f, onProgress); break
-            case 'delete-pages':
-                        if (!pagesInput.trim()) { setError('Enter page numbers to delete.'); setLoading(false); return }
-                        response = await api.deletePages(f, pagesInput, onProgress); break
-            case 'compress-pdf':  response = await api.compressPdf(f, onProgress); break
-            case 'watermark-pdf': response = await api.watermarkPdf(f, watermarkText, onProgress); break
-            case 'rotate-pdf':    response = await api.rotatePdf(f, rotateDeg, onProgress); break
-            case 'edit-pdf':
-                        if (!editText.trim()) { setError('Enter text to add.'); setLoading(false); return }
-                        response = await api.editPdf(f, editPage, editText, editX, editY, editFontSize, onProgress); break
-            default:
-                        setError('Unknown tool.'); setLoading(false); return
-          }
+    setLoading(true)
+    setProgress(0)
+    setError(null)
 
-          setProgress(100)
-                const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/octet-stream' })
-                const url = URL.createObjectURL(blob)
-                const fname = getOutputFilename(toolId, f?.name)
-                setDownloadUrl(url)
-                setOutputFilename(fname)
-        } catch (err) {
-                const msg = err.response?.data
-                  ? await err.response.data.text?.() || 'Server error.'
-                          : err.message || 'Something went wrong.'
-                setError(msg)
-        } finally {
-                setLoading(false)
-        }
+    try {
+      const result = await apiFn(files, options, (pct) => setProgress(pct))
+      const ext = getOutputExtension(toolId)
+      setResultFilename(files[0].name.replace(/\.[^.]+$/, '') + ext)
+      setResultBlob(result)
+    } catch (err) {
+      setError(err.message || 'An error occurred during processing.')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  if (!tool) {
-        return (
-                <div className="max-w-2xl mx-auto px-4 py-20 text-center">
-                        <p className="text-5xl mb-4">🔍</p>p>
-                        <h2 className="text-2xl font-bold text-gray-800 mb-2">Tool not found</h2>h2>
-                        <Link to="/" className="btn-primary inline-block mt-4">Back to Home</Link>Link>
-                </div>div>
-              )
+  const handleReset = () => {
+    setFiles([])
+    setResultBlob(null)
+    setError(null)
+    setProgress(0)
   }
-  
-    const isMultiple = ['images-to-pdf', 'merge-pdf'].includes(toolId)
-        const accept = getAccept(toolId)
-          
-            return (
-                  <div className="max-w-2xl mx-auto px-4 sm:px-6 py-12">
-                    {/* Back */}
-                        <Link to="/" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-blue-600 mb-6 transition-colors">
-                                ← Back to all tools
-                        </Link>Link>
-                  
-                    {/* Tool header */}
-                        <div className="flex items-center gap-4 mb-8">
-                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl ${tool.bgColor}`}>
-                                  {tool.icon}
-                                </div>div>
-                                <div>
-                                          <h1 className="text-2xl font-bold text-gray-900">{tool.name}</h1>h1>
-                                          <p className="text-gray-500 mt-0.5">{tool.description}</p>p>
-                                </div>div>
-                        </div>div>
-                  
-                    {/* Main card */}
-                        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
-                        
-                          {/* File dropzone */}
-                                <FileDropzone
-                                            onFiles={handleFiles}
-                                            accept={accept}
-                                            multiple={isMultiple}
-                                            label={isMultiple ? `Drag & drop ${toolId === 'images-to-pdf' ? 'images' : 'PDF files'} here` : undefined}
-                                            hint={isMultiple ? 'or click to browse multiple files — max 50MB each' : undefined}
-                                          />
-                        
-                          {/* Extra options */}
-                          {toolId === 'delete-pages' && (
-                              <div>
-                                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                        Pages to delete (comma-separated, e.g. 1,3,5)
-                                          </label>label>
-                                          <input
-                                                          type="text"
-                                                          value={pagesInput}
-                                                          onChange={e => setPagesInput(e.target.value)}
-                                                          placeholder="e.g. 1,3,5"
-                                                          className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                        />
-                              </div>div>
-                                )}
-                        
-                          {toolId === 'watermark-pdf' && (
-                              <div>
-                                          <label className="block text-sm font-medium text-gray-700 mb-1">Watermark text</label>label>
-                                          <input
-                                                          type="text"
-                                                          value={watermarkText}
-                                                          onChange={e => setWatermarkText(e.target.value)}
-                                                          className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                        />
-                              </div>div>
-                                )}
-                        
-                          {toolId === 'rotate-pdf' && (
-                              <div>
-                                          <label className="block text-sm font-medium text-gray-700 mb-2">Rotation degrees</label>label>
-                                          <div className="flex gap-3">
-                                            {[90, 180, 270].map(deg => (
-                                                <button
-                                                                    key={deg}
-                                                                    onClick={() => setRotateDeg(deg)}
-                                                                    className={`flex-1 py-2 rounded-xl border text-sm font-medium transition-all ${
-                                                                                          rotateDeg === deg ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:border-blue-300'
-                                                                    }`}
-                                                                  >
-                                                  {deg}°
-                                                </button>button>
-                                              ))}
-                                          </div>div>
-                              </div>div>
-                                )}
-                        
-                          {toolId === 'edit-pdf' && (
-                              <div className="space-y-3">
-                                          <div className="grid grid-cols-2 gap-3">
-                                                        <div>
-                                                                        <label className="block text-xs font-medium text-gray-600 mb-1">Page number</label>label>
-                                                                        <input type="number" min="1" value={editPage} onChange={e => setEditPage(Number(e.target.value))}
-                                                                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                                                        </div>div>
-                                                        <div>
-                                                                        <label className="block text-xs font-medium text-gray-600 mb-1">Font size (pt)</label>label>
-                                                                        <input type="number" min="6" max="72" value={editFontSize} onChange={e => setEditFontSize(Number(e.target.value))}
-                                                                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                                                        </div>div>
-                                                        <div>
-                                                                        <label className="block text-xs font-medium text-gray-600 mb-1">X position (pt)</label>label>
-                                                                        <input type="number" value={editX} onChange={e => setEditX(Number(e.target.value))}
-                                                                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                                                        </div>div>
-                                                        <div>
-                                                                        <label className="block text-xs font-medium text-gray-600 mb-1">Y position (pt)</label>label>
-                                                                        <input type="number" value={editY} onChange={e => setEditY(Number(e.target.value))}
-                                                                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                                                        </div>div>
-                                          </div>div>
-                                          <div>
-                                                        <label className="block text-xs font-medium text-gray-600 mb-1">Text to add</label>label>
-                                                        <input type="text" value={editText} onChange={e => setEditText(e.target.value)} placeholder="Enter text..."
-                                                                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                                          </div>div>
-                              </div>div>
-                                )}
-                        
-                          {/* Error */}
-                          {error && (
-                              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-                                          <span>⚠️</span>span>
-                                          <span>{error}</span>span>
-                              </div>div>
-                                )}
-                        
-                          {/* Progress */}
-                          {loading && <ProgressBar progress={progress} />}
-                        
-                          {/* Submit */}
-                          {!downloadUrl && (
-                              <button
-                                            onClick={handleSubmit}
-                                            disabled={loading || files.length === 0}
-                                            className="btn-primary w-full"
-                                          >
-                                {loading ? 'Processing...' : `Convert / Process`}
-                              </button>button>
-                                )}
-                        
-                          {/* Download */}
-                          {downloadUrl && (
-                              <DownloadButton url={downloadUrl} filename={outputFilename} onReset={reset} />
-                            )}
-                        </div>div>
-                  
-                    {/* Info */}
-                        <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-700 flex items-start gap-2">
-                                <span>ℹ️</span>span>
-                                <span>Your files are processed securely and deleted automatically within 10 minutes. We never store your documents permanently.</span>span>
-                        </div>div>
-                  </div>div>
-                )
-}</div>
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 py-12">
+      <button onClick={() => navigate('/')} className="flex items-center gap-1 text-sm text-gray-500 hover:text-blue-600 mb-8 transition-colors">
+        ← Back to all tools
+      </button>
+
+      <div className="flex items-center gap-3 mb-8">
+        <span className="text-4xl">{config.icon}</span>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{config.name}</h1>
+          <p className="text-gray-500">{config.description}</p>
+        </div>
+      </div>
+
+      {!resultBlob && !loading && (
+        <div className="space-y-6">
+          <FileDropzone
+            onDrop={handleDrop}
+            accept={config.accept}
+            multiple={config.multiple}
+          />
+
+          {files.length > 0 && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm font-medium text-gray-700 mb-2">Selected files:</p>
+              <ul className="space-y-1">
+                {files.map((f, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm text-gray-600">
+                    <span>📎</span>
+                    <span className="truncate">{f.name}</span>
+                    <span className="text-gray-400 shrink-0">({(f.size / 1024 / 1024).toFixed(2)} MB)</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {config.hasOptions && config.options && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Options</h3>
+              {config.options.map(opt => (
+                <div key={opt.key} className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-gray-700">{opt.label}</label>
+                  {opt.type === 'select' ? (
+                    <select
+                      value={options[opt.key] || opt.options[0]}
+                      onChange={e => setOptions(prev => ({ ...prev, [opt.key]: e.target.value }))}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {opt.options.map(o => <option key={o} value={o}>{o}°</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      type={opt.type}
+                      placeholder={opt.placeholder}
+                      value={options[opt.key] || ''}
+                      onChange={e => setOptions(prev => ({ ...prev, [opt.key]: e.target.value }))}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+              {error}
+            </div>
+          )}
+
+          <button
+            onClick={handleSubmit}
+            disabled={files.length === 0}
+            className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {config.name}
+          </button>
+        </div>
+      )}
+
+      {loading && (
+        <div className="py-8">
+          <ProgressBar progress={progress} label={'Processing with ' + config.name + '...'} />
+        </div>
+      )}
+
+      {resultBlob && (
+        <DownloadButton blob={resultBlob} filename={resultFilename} onReset={handleReset} />
+      )}
+    </div>
+  )
+}
+
+function getOutputExtension(toolId) {
+  const map = {
+    'pdf-to-word': '.docx',
+    'word-to-pdf': '.pdf',
+    'images-to-pdf': '.pdf',
+    'pdf-to-images': '.zip',
+    'pptx-to-pdf': '.pdf',
+    'pdf-to-pptx': '.pptx',
+    'merge-pdf': '.pdf',
+    'split-pdf': '.zip',
+    'delete-pages': '.pdf',
+    'edit-pdf': '.pdf',
+    'compress-pdf': '.pdf',
+    'watermark-pdf': '.pdf',
+    'rotate-pdf': '.pdf',
+  }
+  return map[toolId] || '.pdf'
+}
