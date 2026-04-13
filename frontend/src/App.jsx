@@ -5,16 +5,16 @@ import Home from './pages/Home.jsx'
 import ToolPage from './pages/ToolPage.jsx'
 
 export default function App() {
-    return (
-          <div className="min-h-screen flex flex-col">
-                <Header />
-                <main className="flex-1">
-                        <Routes>
-                                  <Route path="/" element={<Home />} />
-                                  <Route path="/tool/:toolId" element={<ToolPage />} />
-                        </Routes>Routes>
-                </main>main>
-                <Footer />
-          </div>div>
-        )
-}</div>
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Header />
+      <main className="flex-1">
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/tool/:toolId" element={<ToolPage />} />
+        </Routes>
+      </main>
+      <Footer />
+    </div>
+  )
+}
