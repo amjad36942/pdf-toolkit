@@ -1,51 +1,46 @@
 import { useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 
-export default function FileDropzone({ onFiles, accept, multiple = false, label, hint }) {
-    const onDrop = useCallback((accepted) => {
-          if (accepted.length > 0) onFiles(multiple ? accepted : [accepted[0]])
-    }, [onFiles, multiple])
+export default function FileDropzone({ onDrop, accept, multiple = false, maxSize = 52428800 }) {
+  const onDropCallback = useCallback((acceptedFiles, rejectedFiles) => {
+    if (rejectedFiles && rejectedFiles.length > 0) {
+      const error = rejectedFiles[0].errors[0]
+      if (error.code === 'file-too-large') {
+        alert('File is too large. Maximum size is 50MB.')
+      } else if (error.code === 'file-invalid-type') {
+        alert('Invalid file type. Please check the accepted formats.')
+      }
+      return
+    }
+    onDrop(acceptedFiles)
+  }, [onDrop])
 
-  const { getRootProps, getInputProps, isDragActive, acceptedFiles } = useDropzone({
-        onDrop,
-        accept: accept || undefined,
-        multiple,
-        maxSize: 52428800, // 50MB
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: onDropCallback,
+    accept,
+    multiple,
+    maxSize,
   })
 
   return (
-        <div>
-              <div
-                {...getRootProps()}
-                        className={`dropzone ${isDragActive ? 'dropzone-active' : ''}`}
-                      >
-                      <input {...getInputProps()} />
-                      <div className="flex flex-col items-center gap-3">
-                                <div className="text-4xl">{isDragActive ? '📂' : '📁'}</div>div>
-                                <div>
-                                            <p className="font-semibold text-gray-700">
-                                              {isDragActive ? 'Drop files here...' : (label || 'Drag & drop your file here')}
-                                            </p>p>
-                                            <p className="text-sm text-gray-400 mt-1">
-                                              {hint || 'or click to browse — max 50MB'}
-                                            </p>p>
-                                </div>div>
-                      </div>div>
-              </div>div>
-        
-          {acceptedFiles.length > 0 && (
-                  <div className="mt-3 space-y-1">
-                    {acceptedFiles.map((f, i) => (
-                                <div key={i} className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
-                                              <span>📎</span>span>
-                                              <span className="truncate font-medium">{f.name}</span>span>
-                                              <span className="ml-auto text-gray-400 shrink-0">
-                                                {(f.size / 1024 / 1024).toFixed(2)} MB
-                                              </span>span>
-                                </div>div>
-                              ))}
-                  </div>div>
-              )}
-        </div>div>
-      )
-}</div>
+    <div
+      {...getRootProps()}
+      className={`dropzone ${isDragActive ? 'dropzone-active' : ''}`}
+    >
+      <input {...getInputProps()} />
+      <div className="flex flex-col items-center gap-3 text-gray-500">
+        <svg className="w-12 h-12 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+        </svg>
+        {isDragActive ? (
+          <p className="font-medium text-blue-600">Drop the files here...</p>
+        ) : (
+          <div className="text-center">
+            <p className="font-medium">Drag & drop files here, or <span className="text-blue-600 cursor-pointer">browse</span></p>
+            <p className="text-sm mt-1">Maximum file size: 50MB</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
