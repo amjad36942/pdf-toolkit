@@ -11,7 +11,7 @@ export default function Footer() {
             Free, secure PDF tools. Files are processed in memory and never stored permanently.
           </p>
           <div className="flex gap-4 text-sm text-gray-500">
-            <a href="https://github.com/amjad36942/pdf-toolkit" target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 transition-colors">GitHub</a>
+            <a href="https://github.com/amjad36942/pdf-toolkit" target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 transition-colors">AMJAD HUSSAIN</a>
           </div>
         </div>
       </div>
