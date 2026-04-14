@@ -13,105 +13,131 @@ router = APIRouter()
 
 
 def _save_pdf(content: bytes) -> Path:
-      if len(content) > MAX_FILE_SIZE_BYTES:
-                raise HTTPException(413, "File exceeds 50MB.")
-            p = TEMP_DIR / f"{uuid.uuid4()}.pdf"
+    if len(content) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(413, "File exceeds 50MB.")
+    p = TEMP_DIR / f"{uuid.uuid4()}.pdf"
     p.write_bytes(content)
     return p
 
 
 @router.post("/merge-pdf")
 async def api_merge(files: List[UploadFile] = File(...)):
-      if len(files) < 2:
-                raise HTTPException(400, "Upload at least 2 PDF files.")
-            paths = []
+    if len(files) < 2:
+        raise HTTPException(400, "Upload at least 2 PDF files.")
+    paths = []
     for f in files:
-              if not (f.filename or "").lower().endswith(".pdf"):
-                            raise HTTPException(400, f"'{f.filename}' is not a PDF.")
-                        paths.append(_save_pdf(await f.read()))
+        if not (f.filename or "").lower().endswith(".pdf"):
+            raise HTTPException(400, f"'{f.filename}' is not a PDF.")
+        content = await f.read()
+        paths.append(_save_pdf(content))
     out = TEMP_DIR / f"{uuid.uuid4()}.pdf"
     try:
-              r = merge_pdfs(paths, out)
-except Exception as e:
+        r = merge_pdfs(paths, out)
+    except Exception as e:
         raise HTTPException(500, str(e))
-finally:
-        for p in paths: p.unlink(missing_ok=True)
-              return FileResponse(str(r), media_type="application/pdf", filename="merged.pdf")
+    finally:
+        for p in paths:
+            p.unlink(missing_ok=True)
+    return FileResponse(str(r), media_type="application/pdf", filename="merged.pdf")
 
 
 @router.post("/split-pdf")
 async def api_split(file: UploadFile = File(...)):
-      inp = _save_pdf(await file.read())
-    out_dir = TEMP_DIR / uuid.uuid4().hex
-    out_dir.mkdir(parents=True, exist_ok=True)
-    pages = []
-    zip_path = TEMP_DIR / f"{uuid.uuid4()}.zip"
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files accepted.")
+    content = await file.read()
+    inp = _save_pdf(content)
+    zip_out = TEMP_DIR / f"{uuid.uuid4()}.zip"
     try:
-              pages = split_pdf(inp, out_dir)
-        create_zip(pages, zip_path)
-except Exception as e:
+        pages = split_pdf(inp)
+        zip_path = create_zip(pages, zip_out)
+    except Exception as e:
         raise HTTPException(500, str(e))
-finally:
+    finally:
         inp.unlink(missing_ok=True)
-        for p in pages: p.unlink(missing_ok=True)
-                  try: out_dir.rmdir()
-                            except: pass
-                                  return FileResponse(str(zip_path), media_type="application/zip", filename="split_pages.zip")
+    stem = Path(file.filename).stem
+    return FileResponse(str(zip_path), media_type="application/zip", filename=f"{stem}_pages.zip")
 
 
 @router.post("/delete-pages")
-async def api_delete(file: UploadFile = File(...), pages: str = Form(...)):
-      try:
-                page_nums = [int(x.strip()) for x in pages.split(",") if x.strip()]
-except ValueError:
-        raise HTTPException(400, "pages must be comma-separated integers, e.g. '1,3,5'")
-    inp = _save_pdf(await file.read())
+async def api_delete_pages(
+    file: UploadFile = File(...),
+    pages: str = Form(...),
+):
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files accepted.")
+    try:
+        page_list = [int(p.strip()) for p in pages.split(",")]
+    except ValueError:
+        raise HTTPException(400, "pages must be comma-separated integers.")
+    content = await file.read()
+    inp = _save_pdf(content)
     out = TEMP_DIR / f"{uuid.uuid4()}.pdf"
     try:
-              r = delete_pages(inp, out, page_nums)
-except Exception as e:
+        r = delete_pages(inp, page_list, out)
+    except Exception as e:
         raise HTTPException(500, str(e))
-finally:
+    finally:
         inp.unlink(missing_ok=True)
-    return FileResponse(str(r), media_type="application/pdf", filename="pages_deleted.pdf")
+    stem = Path(file.filename).stem
+    return FileResponse(str(r), media_type="application/pdf", filename=f"{stem}_deleted.pdf")
 
 
 @router.post("/compress-pdf")
 async def api_compress(file: UploadFile = File(...)):
-      inp = _save_pdf(await file.read())
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files accepted.")
+    content = await file.read()
+    inp = _save_pdf(content)
     out = TEMP_DIR / f"{uuid.uuid4()}.pdf"
     try:
-              r = compress_pdf(inp, out)
-except Exception as e:
+        r = compress_pdf(inp, out)
+    except Exception as e:
         raise HTTPException(500, str(e))
-finally:
+    finally:
         inp.unlink(missing_ok=True)
-    return FileResponse(str(r), media_type="application/pdf", filename="compressed.pdf")
+    stem = Path(file.filename).stem
+    return FileResponse(str(r), media_type="application/pdf", filename=f"{stem}_compressed.pdf")
 
 
 @router.post("/watermark-pdf")
-async def api_watermark(file: UploadFile = File(...), text: str = Form("CONFIDENTIAL")):
-      inp = _save_pdf(await file.read())
+async def api_watermark(
+    file: UploadFile = File(...),
+    text: str = Form(...),
+):
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files accepted.")
+    content = await file.read()
+    inp = _save_pdf(content)
     out = TEMP_DIR / f"{uuid.uuid4()}.pdf"
     try:
-              r = add_watermark(inp, out, watermark_text=text)
-except Exception as e:
+        r = add_watermark(inp, text, out)
+    except Exception as e:
         raise HTTPException(500, str(e))
-finally:
+    finally:
         inp.unlink(missing_ok=True)
-    return FileResponse(str(r), media_type="application/pdf", filename="watermarked.pdf")
+    stem = Path(file.filename).stem
+    return FileResponse(str(r), media_type="application/pdf", filename=f"{stem}_watermarked.pdf")
 
 
 @router.post("/rotate-pdf")
-async def api_rotate(file: UploadFile = File(...), degrees: int = Form(90)):
-      if degrees not in (90, 180, 270):
-                raise HTTPException(400, "degrees must be 90, 180, or 270.")
-            inp = _save_pdf(await file.read())
+async def api_rotate(
+    file: UploadFile = File(...),
+    degrees: int = Form(90),
+    pages: str = Form("all"),
+):
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files accepted.")
+    if degrees not in (90, 180, 270):
+        raise HTTPException(400, "degrees must be 90, 180, or 270.")
+    content = await file.read()
+    inp = _save_pdf(content)
     out = TEMP_DIR / f"{uuid.uuid4()}.pdf"
     try:
-              r = rotate_pdf(inp, out, degrees)
-except Exception as e:
+        r = rotate_pdf(inp, degrees, pages, out)
+    except Exception as e:
         raise HTTPException(500, str(e))
-finally:
+    finally:
         inp.unlink(missing_ok=True)
-      return FileResponse(str(r), media_type="application/pdf", filename="rotated.pdf")
+    stem = Path(file.filename).stem
+    return FileResponse(str(r), media_type="application/pdf", filename=f"{stem}_rotated.pdf")
